@@ -1,0 +1,107 @@
+---
+title: "Tyding Traffic Volume NYC"
+output:
+  html_document:
+    df_print: paged
+---
+
+Let's start by importing the data from the site
+
+```{r}
+if(!file.exists("./data/"))
+  dir.create("./data/")
+download.file("https://data.cityofnewyork.us/api/views/ertz-hr4r/rows.csv?accessType=DOWNLOAD",destfile = "./data/TrafficVolume/nycTrafficVolume2014-2019.csv",mode = "wb")
+list.files("./data/TrafficVolume/")
+dataCreated <- date()
+```
+ We need to import some essential packages like tidyverse,lubridate and foreign. Not only that but we will try to make the dataset more tidy.
+```{r}
+#install.packages("tidyverse")
+#install.packages("lubridate")
+#install.packages("foreign")
+#install.packages("compareDF")
+library(tidyverse)
+library(lubridate)
+library(foreign)
+library(compareDF)
+
+volumeData <- read_csv("./data/TrafficVolume/nycTrafficVolume2014-2019.csv",col_types = cols(  Date = col_date(format="%m/%d/%Y")))
+volumeData <- volumeData%>%
+              pivot_longer(cols=-(1:7),names_to = "timeInterval",values_to = "count")
+
+
+```
+
+Vamos filtrar as estações que só são apuradas em 2019
+```{r}
+observations2019<- volumeData %>% filter(year(Date)>=2019)
+remove(volumeData)
+
+```
+Precisamos encontrar os Municipios! Para tanto vamos usar os dados do LION dataset por SegmentID(lembrando que podemos ter um mesmo segmento em diferentes municípios). Veja que como temos duplicatas vamos tentar somente pegar os dados do LBoro(municipio a esquerda) e RBoro(Municipio a direita).
+```{r}
+#used to import dataset from arcgis
+lion2021 <- as_tibble(read.dbf("./data/ReferenceRoads/lion2021B.dbf"))
+#fixing the cols types
+lion2021$SegmentID<-as.numeric(as.character(lion2021$SegmentID))
+lion2021$Street<-as.character(lion2021$Street)
+#lets use only the distinct rows
+lion2021<-select(lion2021,c("Street","SegmentID","LBoro","RBoro"))%>%
+          distinct
+
+```
+
+Veja que tanto o dataset LION2021B como o banco de dados com as observações possuem dados que duplicados ou com pequenas alterações refentes a mesma localização. Primeiro vamos juntar as tabelas por "SegmentID" e verificar se existe algum missing value.
+
+```{r}
+left_join(observations2019,lion2021,by = c("Segment ID"="SegmentID"))%>%
+                pivot_longer(cols = (LBoro:RBoro),names_to = "Tipo",values_to = "MunicipalityCode")%>%
+                select(-(Tipo))%>%
+                distinct %>%
+                filter(is.na(MunicipalityCode))
+```
+
+Veja que alguns valores estão faltando. Logo vamos importar um banco de dados lion 2014 mais antigo e verificar se esse pode ser utilizado no lugar do mais recente
+
+```{r}
+#used to import dataset from arcgis
+lion2014 <- as_tibble(read.dbf("./data/ReferenceRoads/lion2014D.dbf"))
+#fixing the cols types
+lion2014$SegmentID<-as.numeric(as.character(lion2014$SegmentID))
+lion2014$Street<-as.character(lion2014$Street)
+#lets use only the distinct rows
+lion2014<-select(lion2014,c("Street","SegmentID","LBoro","RBoro"))%>%
+          distinct
+compare_df(select(lion2021,c("SegmentID","LBoro","RBoro")),select(lion2014,c("SegmentID","LBoro","RBoro")),"SegmentID")
+
+```
+
+Temos um total de 9 campos modificados entre um banco e o outro. Vamos tentar restingir ao ano de 2019.
+```{r}
+validSegments <- unique(observations2019$`Segment ID`)
+compare_df(select(lion2021,c("SegmentID","LBoro","RBoro"))%>%
+             filter(SegmentID %in% validSegments)
+           ,select(lion2014,c("SegmentID","LBoro","RBoro"))%>%
+             filter(SegmentID %in% validSegments)
+           ,"SegmentID")
+```
+Logo é possível usar o lion2014 nos nossos dados para gerar código de municipio.
+```{r}
+remove(lion2021)
+observations2019 <- left_join(observations2019,lion2014,by = c("Segment ID"="SegmentID"))%>%
+                pivot_longer(cols = (LBoro:RBoro),names_to = "Tipo",values_to = "MunicipalityCode")%>%
+                select(-(Tipo))%>%
+                distinct
+remove(lion2014)
+```
+Vamos verificar se existe algum campo nulo.
+```{r}
+summary(observations2019)
+```
+Veja que agora podemos gerar nossos banco de testes facilmente com uma função de sampling.
+```{r}
+set.seed(4)
+
+
+```
+
