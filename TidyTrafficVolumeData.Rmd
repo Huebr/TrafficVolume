@@ -1,6 +1,7 @@
 ---
 title: "Tyding Traffic Volume NYC"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
 ---
@@ -26,8 +27,8 @@ library(foreign)
 library(compareDF)
 
 volumeData <- read_csv("./data/TrafficVolume/nycTrafficVolume2014-2019.csv",col_types = cols(  Date = col_date(format="%m/%d/%Y")))
-volumeData <- volumeData%>%
-              pivot_longer(cols=-(1:7),names_to = "timeInterval",values_to = "count")
+volumeData <- volumeData
+#%>%             pivot_longer(cols=-(1:7),names_to = "timeInterval",values_to = "count")
 
 
 ```
@@ -98,10 +99,28 @@ Vamos verificar se existe algum campo nulo.
 ```{r}
 summary(observations2019)
 ```
+Vamos remover observações invalida usando codigo de municipio 0.
+```{r}
+observations2019<-filter(observations2019, MunicipalityCode !=0)
+```
+
+
+
 Veja que agora podemos gerar nossos banco de testes facilmente com uma função de sampling.
 ```{r}
 set.seed(4)
+random_date<- sample(unique(observations2019$Date),1)
+myresult<- filter(observations2019,Date == random_date)
 
-
+```
+Vamos baixar os dados do Covid da cidade de Nova Iorque
+```{r}
+download.file("https://github.com/nychealth/coronavirus-data/archive/refs/heads/master.zip",destfile = "./data/covid.zip")
+lastdir<-getwd()
+setwd(paste(lastdir,"./data/",sep=''))
+unzip("./covid.zip")
+setwd(lastdir)
+remove(lastdir)
+covid_like_illness_by_boro <- read_csv("./data/coronavirus-data-master/trends/covid-like-illness-by-boro.csv",col_types = cols(Date = col_date(format="%Y-%m-%d")))
 ```
 
