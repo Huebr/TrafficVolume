@@ -90,7 +90,7 @@ Logo é possível usar o lion2014 nos nossos dados para gerar código de municip
 ```{r}
 remove(lion2021)
 observations2019 <- left_join(observations2019,lion2014,by = c("Segment ID"="SegmentID"))%>%
-                pivot_longer(cols = (LBoro:RBoro),names_to = "Tipo",values_to = "MunicipalityCode")%>%
+                pivot_longer(cols = (LBoro:RBoro),names_to = "Tipo",values_to = "Borough")%>%
                 select(-(Tipo))%>%
                 distinct
 remove(lion2014)
@@ -101,7 +101,7 @@ summary(observations2019)
 ```
 Vamos remover observações invalida usando codigo de municipio 0.
 ```{r}
-observations2019<-filter(observations2019, MunicipalityCode !=0)
+observations2019<-filter(observations2019, Borough !=0)
 ```
 
 
@@ -122,5 +122,60 @@ unzip("./covid.zip")
 setwd(lastdir)
 remove(lastdir)
 covid_like_illness_by_boro <- read_csv("./data/coronavirus-data-master/trends/covid-like-illness-by-boro.csv",col_types = cols(Date = col_date(format="%Y-%m-%d")))
+idx<-function(value){
+   if(value == "Manhattan"){
+       1
+   }
+  else if(value == "Bronx"){
+      2
+  }
+  else if(value == "Brooklyn"){
+      3
+  }else if(value == "Queens")
+  {
+      4
+  }
+  else if(value == "Staten Island")
+  {
+      5
+  }
+  else{0}
+}
+covid_like_illness_by_boro<-covid_like_illness_by_boro %>% mutate(Borough = sapply(Borough,idx))
+remove(idx)
 ```
+Creating tests
+```{r}
+covid20<-filter(covid_like_illness_by_boro, year(Date)<=2020) %>%select(c("Date","Borough","Visit_All_ages","Admit_All_ages"))
+remove(covid_like_illness_by_boro)
+#result<- %>%
+myresult<-mutate(observations2019,Date = as_date(update(Date,year=2020)))%>%
+          left_join(covid20,by=c("Date","Borough"))
+#big dataset
+write_csv(myresult,"./data/output_tests/my_data.gzip")
+
+#separating by dates
+
+valid_dates<- unique(myresult$Date)
+for(i in seq_along(valid_dates)){
+  print(valid_dates[i])
+  print(paste("./data/output_tests/daily/",valid_dates[i],".csv",sep=""))
+  write_csv(filter(myresult,Date == instance),paste("./data/output_tests/daily/",valid_dates[i],".csv",sep=""))
+}
+```
+Criando teste multiperiodo primeiro vamos criar id's unicos para Segemnto por direção
+```{r}
+library(sqldf)
+myresult<-myresult %>% mutate(newID=group_indices(.,`Segment ID`,Direction))
+sqlStmt <- "select Date, count(distinct newID) from myresult group by Date"
+sqldf(sqlStmt)
+myresult %>% select(c("Roadway Name","From","To","newID")) %>% arrange(newID) %>% distinct
+
+```
+
+
+```{r}
+idtable<-myresult %>% select(c("Roadway Name","From","To","newID")) %>% arrange(newID) %>% distinct
+```
+
 
