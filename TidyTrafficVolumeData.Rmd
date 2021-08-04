@@ -153,16 +153,22 @@ remove(covid_like_illness_by_boro)
 #result<- %>%
 myresult<-mutate(observations2019,Date = as_date(update(Date,year=2020)))%>%
           left_join(covid20,by=c("Date","Borough"))
+
+#gives a warning but the result is the same as using group_by before and cur_group_id in mutate without grouping
+myresult<-myresult %>% mutate(newID=group_indices(.,`Segment ID`,Direction,Borough))
+
 #big dataset
 write_csv(myresult,"./data/output_tests/my_data.gzip")
 
+
+
 #separating by dates
-m<-m[sample(nrow(m),size=1000,replace=FALSE),]
+
 valid_dates<- unique(myresult$Date)
 for(i in seq_along(valid_dates)){
   print(valid_dates[i])
   print(paste("./data/output_tests/daily/",valid_dates[i],".csv",sep=""))
-  write_csv(filter(myresult,Date == valid_dates[i]),paste("./data/output_tests/daily/",valid_dates[i],".csv",sep=""))
+  write_csv(filter(myresult,Date == valid_dates[i])%>%arrange(newID),paste("./data/output_tests/daily/",valid_dates[i],".csv",sep=""))
 }
 ```
 Criando teste multiperiodo primeiro vamos criar id's unicos para Segemnto por direção e borough. Verificar novo agrupamento
@@ -203,6 +209,35 @@ Vamos gerar uma escala de trabalho dentro de 24 horas.
 #m will helpe me to divide my teams by groups
 m<- partitions::compositions(12, 12)
 m<-t(as.matrix(m))
+#m<-m[sample(nrow(m),size=1000,replace=FALSE),]
+
+initial <- diag(12)*12
+for(i in 1:12){
+  for(j in 1:12){
+     if(i<j){
+        base<-rep(0,12)
+        base[i] <- 6
+        base[j] <- 6
+        initial<-rbind(initial,base)
+     }
+  }
+}
+for(i in 1:12){
+  for(j in 1:12){
+    if(i<j){
+     for(k in 1:12){
+       if(j<k){
+         base<-rep(0,12)
+         base[i] <- 4
+         base[j] <- 4
+         base[k] <- 4
+         initial<-rbind(initial,base)
+       }
+     }
+    }
+  }
+}
+m<-initial
 # we need divide 12 types of schedules by the size than use function to create our team schedule
 
 # lets create a function thats take the number of teams k ,number of intervals of 24 hours n, number of locations and partition division p 
@@ -249,6 +284,7 @@ create_instance <-function(k,n,my_instance,instance_partition,p){
                   sorteio_location<-sample(viable_districts, size= 1,replace=TRUE)
                   #create a array 0 or 1 based in  locations inside a Borough that was randomly draw
                   solution<- as.numeric((my_instance %>% select(Borough,newID) %>% unique %>% arrange(newID))$Borough == sorteio_location)
+                  #View(my_instance %>% select(Borough,newID) %>% unique %>% arrange(newID))
                   #separates in periods t of 24 hours
                   for(t in 0:(n-1)){
                   for(j in 1:24){
@@ -325,20 +361,37 @@ for(k in meus_ks){
     for(i in seq_along(valid_dates)){
       number_of_locations<- filter(myresult,Date == valid_dates[i]) %>% select(newID) %>% unique %>% nrow
       print(valid_dates[i])
-      if(number_of_locations!=10) next #just instances with 10 points
+      #if(number_of_locations>10) next #just instances with 10 points
+      
+      if(!file.exists(paste("./data/output_tests/new_instances/",valid_dates[i],"/",sep=""))){
+             dir.create(paste("./data/output_tests/new_instances/",valid_dates[i],"/",sep=""))
+      }
       #iterate through partitions
       for(partition in 1:nrow(m)){
-         st<-paste("./data/output_tests/new_instances/",paste(valid_dates[i],k*100,p*100,number_of_locations,paste(m[partiion,],collapse = "-"),sep = "-"),".gzip",sep="")
+         st<-paste("./data/output_tests/new_instances/",valid_dates[i],"/",paste(k*100,p*100,number_of_locations,paste(m[partition,],collapse = "-"),sep = "-"),".csv",sep="")
        print(st)
        #create instance
-       ts<-create_instance(number_of_locations*k,1,filter(myresult,Date == valid_dates[i]),m[partition,],p)
+       ts<-create_instance(floor(number_of_locations*k),1,filter(myresult,Date == valid_dates[i]),m[partition,],p)
+       #print(ts)
        n3 <- dim(ts)[3]
        #change 3d array to table with column with the times and write to gzip
-       mp<-lapply(1:n3, function (i) ts[,,i]) %>%
+       #if number of team equals one its collapses generating a list
+       if(floor(number_of_locations*k) <= 1){
+            mp<-lapply(1:n3, function (i) ts[,,i]) %>%
+           imap_dfr(function(mtx, i) {
+           as.data.frame(t(mtx)) %>%
+           mutate(table = paste("time", i, sep = "_"))
+         
+        })
+         
+       }else{
+        mp<-lapply(1:n3, function (i) ts[,,i]) %>%
        imap_dfr(function(mtx, i) {
            as.data.frame(mtx) %>%
            mutate(table = paste("time", i, sep = "_"))
+         
         })
+       }
        write_csv(mp,st)
       }
     }
